@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Type
+from typing import Any, Dict, Optional, Type
 
 from fastapi import Security, status
 from fastapi.exceptions import HTTPException
@@ -7,6 +7,11 @@ from fastapi.openapi.models import APIKey, APIKeyIn
 from fastapi.security.api_key import APIKeyHeader, APIKeyQuery
 from fastapi.security.base import SecurityBase
 from pydantic import BaseModel
+from pydantic.schema import (
+    field_schema,
+    get_flat_models_from_fields,
+    get_model_name_map,
+)
 from pydantic.types import UUID4
 from starlette.requests import Request
 
@@ -177,7 +182,6 @@ async def require_admin_key(
     api_key_header: str = Security(api_key_header),
     api_key_query: str = Security(api_key_query),
 ):
-
     token = api_key_header or api_key_query
 
     if not token:
@@ -203,7 +207,6 @@ async def require_invoice_key(
     api_key_header: str = Security(api_key_header),
     api_key_query: str = Security(api_key_query),
 ):
-
     token = api_key_header or api_key_query
 
     if not token:
@@ -271,6 +274,51 @@ async def check_super_user(usr: UUID4) -> User:
     return user
 
 
+class FilterModel(BaseModel):
+    class Config:
+        @staticmethod
+        def schema_extra(schema: Dict[str, Any], model: Type["FilterModel"]) -> None:
+            for prop in schema.get("properties", {}).values():
+                prop.pop("title", None)
+
+
+def generate_filter_openapi(model: Type[BaseModel], keep_optional=False):
+    """
+    Generate openapi documentation for Filters. This is intended to be used along parse_filters (see example)
+
+    :param model: Filter model
+    :param keep_optional: If false, all parameters will be optional, otherwise inferred from model
+    """
+    fields = list(model.__fields__.values())
+    models = get_flat_models_from_fields(fields, set())
+    namemap = get_model_name_map(models)
+    params = []
+    for field in fields:
+        schema, definitions, _ = field_schema(field, model_name_map=namemap)
+
+        # Support nested definition
+        if "$ref" in schema:
+            name = schema["$ref"].split("/")[-1]
+            schema = definitions[name]
+
+        description = "Supports Filtering"
+        if schema["type"] == "object":
+            description += f". Nested attributes can be filtered too, e.g. `{field.alias}.[additional].[attributes]`"
+
+        parameter = {
+            "name": field.alias,
+            "in": "query",
+            "required": field.required if keep_optional else False,
+            "schema": schema,
+            "description": description,
+        }
+        params.append(parameter)
+
+    return {
+        "parameters": params,
+    }
+
+
 def parse_filters(model: Type[BaseModel]):
     """
     Parses the query params as filters.
@@ -286,7 +334,10 @@ def parse_filters(model: Type[BaseModel]):
 
     :param model: model used for validation of filter values
     """
-    def dependency(request: Request):
+
+    def dependency(
+        request: Request, limit: Optional[int] = None, offset: Optional[int] = None
+    ):
         params = request.query_params
         filters = []
         for key in params.keys():
@@ -297,8 +348,8 @@ def parse_filters(model: Type[BaseModel]):
 
         return Filters(
             filters=filters,
-            limit=params.get("limit"),
-            offset=params.get("offset"),
+            limit=limit,
+            offset=offset,
         )
 
     return dependency

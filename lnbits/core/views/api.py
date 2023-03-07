@@ -38,6 +38,7 @@ from lnbits.db import Filters
 from lnbits.decorators import (
     WalletTypeInfo,
     check_admin,
+    generate_filter_openapi,
     get_key_type,
     parse_filters,
     require_admin_key,
@@ -116,10 +117,14 @@ async def api_update_wallet(
     }
 
 
-@core_app.get("/api/v1/payments")
+@core_app.get(
+    "/api/v1/payments",
+    response_model=list[Payment],
+    openapi_extra=generate_filter_openapi(Payment),
+)
 async def api_payments(
     wallet: WalletTypeInfo = Depends(get_key_type),
-    filters: Filters = Depends(parse_filters(Payment)),
+    filters: Filters[Payment] = Depends(parse_filters(Payment)),
 ):
     pendingPayments = await get_payments(
         wallet_id=wallet.wallet.id,
