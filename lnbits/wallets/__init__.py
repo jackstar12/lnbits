@@ -20,6 +20,7 @@ from .lntips import LnTipsWallet
 from .opennode import OpenNodeWallet
 from .spark import SparkWallet
 from .void import VoidWallet
+from .clnrest import CLNRestWallet
 
 
 def set_wallet_class(class_name: Optional[str] = None):
