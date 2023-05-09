@@ -412,8 +412,10 @@ class Filter(BaseModel, Generic[TFilterModel]):
     def statement(self):
         accessor = self.field
         if self.nested:
-            for name in self.nested:
-                accessor = f"({accessor} ->> '{name}')"
+            if DB_TYPE == SQLITE:
+                accessor = f"json_extract({accessor}, '${'.'.join(self.nested)}')"
+            else:
+                accessor = f"json_extract_path_text({accessor}, '{'.'.join(self.nested)}')"
         if self.model and self.model.__fields__[self.field].type_ == datetime.datetime:
             placeholder = Compat.timestamp_placeholder
         else:
