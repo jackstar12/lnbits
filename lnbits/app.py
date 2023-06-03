@@ -10,13 +10,16 @@ import traceback
 from http import HTTPStatus
 from typing import Callable, List
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.background import BackgroundTask
+from starlette.responses import Response, StreamingResponse
 
 from lnbits.core.crud import get_installed_extensions
 from lnbits.core.helpers import migrate_extension_database
@@ -32,9 +35,20 @@ from .core import (
 )
 from .core.services import check_admin_settings
 from .core.views.generic import core_html_routes
-from .extension_manager import Extension, InstallableExtension, get_valid_extensions
+from .decorators import check_user_exists
+from .extension_manager import (
+    Extension,
+    InstallableExtension,
+    extension_manager,
+    get_valid_extensions,
+    run_process,
+)
 from .helpers import template_renderer
-from .middleware import ExtensionsRedirectMiddleware, InstalledExtensionMiddleware
+from .middleware import (
+    ExtensionPermissionMiddleware,
+    ExtensionsRedirectMiddleware,
+    InstalledExtensionMiddleware,
+)
 from .requestvars import g
 from .tasks import (
     catch_everything_and_restart,
@@ -77,6 +91,7 @@ def create_app() -> FastAPI:
     # order of these two middlewares is important
     app.add_middleware(InstalledExtensionMiddleware)
     app.add_middleware(ExtensionsRedirectMiddleware)
+    app.add_middleware(ExtensionPermissionMiddleware)
 
     register_startup(app)
     register_routes(app)
@@ -236,6 +251,49 @@ def register_routes(app: FastAPI) -> None:
                 f"Please make sure that the extension `{ext.code}` follows conventions."
             )
 
+    @app.api_route("/{extension}/{path:path}", include_in_schema=False)
+    async def route_extensions(
+        extension: str, path: str, request: Request, user=Depends(check_user_exists)
+    ):
+        running = extension_manager.get_running(extension)
+
+        if not running:
+            raise HTTPException(status_code=404)
+
+        spec = await running.openapi()
+
+        info = spec["paths"].get("/" + path)
+        if info:
+            info = info.get(request.method.lower())
+
+        forward = running.client.build_request(
+            request.method,
+            f"/{path}",
+            content=await request.body(),
+            headers=dict(request.headers),
+            params=request.query_params,
+        )
+
+        if info and "x-template-response" in info:
+            response = await running.client.send(forward)
+            response.raise_for_status()
+            json = response.json()
+            context = json["context"] or {}
+            context["request"] = request
+            context["user"] = user.dict()
+            return template_renderer(
+                [f"lnbits/extensions/{extension}/templates"], extension=extension
+            ).TemplateResponse(json["template"], context)
+
+        r = await running.client.send(forward, stream=True)
+
+        return StreamingResponse(
+            r.aiter_raw(),
+            background=BackgroundTask(r.aclose),
+            status_code=r.status_code,
+            headers=r.headers,
+        )
+
 
 def register_new_ext_routes(app: FastAPI) -> Callable:
     # Returns a function that registers new routes for an extension.
@@ -297,6 +355,8 @@ def register_startup(app: FastAPI):
 
             # check extensions after restart
             await check_installed_extensions(app)
+
+            extension_manager.start_all()
 
         except Exception as e:
             logger.error(str(e))

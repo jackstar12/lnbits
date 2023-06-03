@@ -38,6 +38,7 @@ from lnbits.db import Filters, Page
 from lnbits.decorators import (
     WalletTypeInfo,
     check_admin,
+    check_user_exists,
     get_key_type,
     parse_filters,
     require_admin_key,
@@ -104,6 +105,11 @@ async def api_wallet(wallet: WalletTypeInfo = Depends(get_key_type)):
         }
     else:
         return {"name": wallet.wallet.name, "balance": wallet.wallet.balance_msat}
+
+
+@core_app.get("/api/v1/users", response_model=User)
+async def api_users(user: User = Depends(check_user_exists)):
+    return user
 
 
 @core_app.put("/api/v1/wallet/{new_name}")

@@ -2,9 +2,16 @@ from http import HTTPStatus
 from typing import Any, List, Tuple, Union
 from urllib.parse import parse_qs
 
+from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+from loguru import logger
+from starlette.datastructures import Headers
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from lnbits.core.crud import extension_has_permission
 from lnbits.helpers import template_renderer
 from lnbits.settings import settings
 
@@ -189,3 +196,23 @@ class ExtensionsRedirectMiddleware:
         ]
 
         return "/" + "/".join(elements)
+
+
+class ExtensionPermissionMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            request = Request(scope=scope)
+            headers = Headers(scope=scope)
+            logger.info(f"{request.client}, {request.url}")
+            extension = headers.get("X-Lnbits-Extension")
+
+            if extension:
+                if not await extension_has_permission(extension, scope["path"]):
+                    response = Response("Forbidden", status_code=403)
+                    await response(scope, receive, send)
+                    return
+
+        await self.app(scope, receive, send)

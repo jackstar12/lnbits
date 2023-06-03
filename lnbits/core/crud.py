@@ -181,6 +181,40 @@ async def update_user_extension(
     )
 
 
+async def extension_has_permission(
+    extension: str, permission: str, *, conn: Optional[Connection] = None
+):
+    row = await (conn or db).fetchone(
+        """
+        SELECT * FROM extensions_permissions WHERE extension_id = ? AND permission = ?
+        """,
+        (extension, permission),
+    )
+    return row is not None
+
+
+async def add_extension_permission(
+    extension: str, permission: str, *, conn: Optional[Connection] = None
+):
+    await (conn or db).execute(
+        """
+        INSERT INTO extensions_permissions (extension_id, permission) VALUES (?, ?)
+        """,
+        (extension, permission),
+    )
+
+
+async def remove_extension_permission(
+    extension: str, permission: str, *, conn: Optional[Connection] = None
+):
+    await (conn or db).execute(
+        """
+        DELETE FROM extensions_permissions WHERE extension_id = ? AND permission = ?
+        """,
+        (extension, permission),
+    )
+
+
 # wallets
 # -------
 

@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import os
@@ -16,6 +17,59 @@ from packaging import version
 from pydantic import BaseModel
 
 from lnbits.settings import settings
+
+
+async def run_process(*args, on_line=None, name: str = "", **kwargs):
+    """
+    Call a subprocess, waiting for it to finish. If it exits with a non-zero code, an exception is thrown.
+    """
+    # kwargs["stdout"] = kwargs["stderr"] = asyncio.subprocess.PIPE
+    process = await asyncio.create_subprocess_shell(
+        *args, **kwargs, env=os.environ.copy()
+    )
+
+    try:
+        await process.communicate()
+        await asyncio.gather(
+            _read_stream(process.stdout, on_line=on_line, name=name),
+            _read_stream(process.stderr, on_line=on_line, name=name),
+        )
+
+        code = process.returncode
+        if code != 0:
+            raise ValueError(f"Non-zero exit code by {process}")
+    except asyncio.CancelledError:
+        process.kill()
+        raise
+
+
+async def _read_stream(stream, on_line=None, name: str = ""):
+    while True:
+        raw = await stream.readline()
+        if raw:
+            line = raw.decode()
+            split = line.split("]")
+
+            if "ERROR" in line or "WARNING" in line or "INFO" in line:
+                msg = name + split[2]
+            else:
+                msg = line
+
+            msg = msg.strip("\n").strip()
+
+            if "ERROR" in line:
+                logger.error(msg)
+            elif "WARNING" in line:
+                logger.warning(msg)
+            elif "INFO" in line:
+                logger.info(msg)
+            else:
+                print(msg)
+
+            if on_line:
+                on_line(line)
+        else:
+            break
 
 
 class ExplicitRelease(BaseModel):
@@ -179,6 +233,7 @@ class Extension(NamedTuple):
     migration_module: Optional[str] = None
     db_name: Optional[str] = None
     upgrade_hash: Optional[str] = ""
+    entrypoint: Optional[str] = None
 
     @property
     def module_name(self):
@@ -187,6 +242,10 @@ class Extension(NamedTuple):
             if self.upgrade_hash == ""
             else f"lnbits.upgrades.{self.code}-{self.upgrade_hash}.{self.code}"
         )
+
+    @property
+    def uds(self):
+        return f"{settings.lnbits_socket_path}/ext-{self.code}.sock"
 
     @classmethod
     def from_installable_ext(cls, ext_info: "InstallableExtension") -> "Extension":
@@ -202,11 +261,35 @@ class Extension(NamedTuple):
 # All subdirectories in the current directory, not recursive.
 
 
+class RunningExtension(BaseModel):
+    extension: Extension
+    task: asyncio.Task
+    client: httpx.AsyncClient
+    openapi_schema: Optional[dict] = None
+
+    async def openapi(self):
+        if not self.openapi_schema:
+            response = await self.client.get(f"/openapi.json")
+            response.raise_for_status()
+            self.openapi_schema = response.json()
+        return self.openapi_schema
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
 class ExtensionManager:
     def __init__(self):
         p = Path(settings.lnbits_path, "extensions")
         Path(p).mkdir(parents=True, exist_ok=True)
         self._extension_folders: List[Path] = [f for f in p.iterdir() if f.is_dir()]
+        self._running_extensions: dict[str, RunningExtension] = {}
+
+    def get_extension(self, code: str) -> Optional[Extension]:
+        for extension in self.extensions:
+            if extension.code == code:
+                return extension
+        return None
 
     @property
     def extensions(self) -> List[Extension]:
@@ -236,10 +319,55 @@ class ExtensionManager:
                     config.get("hidden") or False,
                     config.get("migration_module"),
                     config.get("db_name"),
+                    entrypoint=config.get("entrypoint"),
                 )
             )
 
         return output
+
+    @property
+    def runnable_extensions(self) -> List[Extension]:
+        return [e for e in self.extensions if e.is_valid and e.entrypoint]
+
+    def get_running(self, code: str) -> Optional[RunningExtension]:
+        return self._running_extensions.get(code)
+
+    def start_all(self):
+        for extension in self.extensions:
+            self.start_extension(extension)
+
+    async def stop_all(self):
+        for extension in self.extensions:
+            await self.stop_extension(extension)
+
+    def start_extension(self, extension: Extension):
+        if extension.entrypoint:
+            self._running_extensions[extension.code] = RunningExtension(
+                extension=extension,
+                task=asyncio.create_task(
+                    run_process(
+                        f"""
+                        cd {settings.lnbits_path}/extensions/{extension.code} &&
+                        {extension.entrypoint} \\
+                            --lnbits-uds {settings.lnbits_socket_path}/main.sock \\
+                            --lnbits-db-url {settings.lnbits_database_url}/data/db.sqlite3 \\
+                            --uds {extension.uds}
+                        """,
+                        name=extension.code,
+                    )
+                ),
+                client=httpx.AsyncClient(
+                    transport=httpx.AsyncHTTPTransport(uds=extension.uds),
+                    base_url=f"http://{extension.code}",
+                ),
+            )
+
+    async def stop_extension(self, extension: Extension):
+        if extension.code in self._running_extensions:
+            logger.info("Stopping extension: " + extension.code)
+            running = self._running_extensions.pop(extension.code)
+            running.task.cancel()
+            await running.client.aclose()
 
 
 class ExtensionRelease(BaseModel):
@@ -594,3 +722,6 @@ def get_valid_extensions() -> List[Extension]:
     return [
         extension for extension in ExtensionManager().extensions if extension.is_valid
     ]
+
+
+extension_manager = ExtensionManager()

@@ -301,3 +301,15 @@ async def m010_create_installed_extensions_table(db):
         );
     """
     )
+
+
+async def m011_create_extensions_permissions_table(db):
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS extensions_permissions (
+            extension_id TEXT NOT NULL,
+            permission TEXT NOT NULL,
+            UNIQUE(extension_id, permission)
+        );
+    """
+    )

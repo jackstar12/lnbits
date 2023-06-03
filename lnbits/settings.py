@@ -252,6 +252,7 @@ class PersistenceSettings(LNbitsSettings):
 
 
 class SuperUserSettings(LNbitsSettings):
+    lnbits_socket_path: str = Field(default="/home/jacksn/dev/lnbits/socks")
     lnbits_allowed_funding_sources: List[str] = Field(
         default=[
             "VoidWallet",

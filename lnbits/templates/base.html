@@ -15,7 +15,42 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     {% if web_manifest %}
     <link async="async" rel="manifest" href="{{ web_manifest }}" />
-    {% endif %} {% block head_scripts %}{% endblock %}
+    {% endif %} {% block head_scripts %}{% endblock %} {% if LNBITS_EXTENSION %}
+    <script>
+      /*
+       * These proxies make sure to add the X-Lnbits-Extension header to all fetch / xhr requests
+       * made by the browser. This is crucial for extension security in order for the backend
+       * to apply the correct permissions to the request. Otherwise, malicious extensions could
+       * do whatever they want.
+       */
+      window.fetch = new Proxy(window.fetch, {
+        apply: (target, thisArg, args) => {
+          args[1] = args[1] || {}
+          if (args[1].headers) {
+            args[1].headers['X-Lnbits-Extension'] = '{{ LNBITS_EXTENSION }}'
+          } else {
+            args[1].headers = {
+              'X-Lnbits-Extension': '{{ LNBITS_EXTENSION }}'
+            }
+          }
+          return target.apply(thisArg, args)
+        }
+      })
+
+      window.XMLHttpRequest.prototype.send = new Proxy(
+        window.XMLHttpRequest.prototype.send,
+        {
+          apply: function (target, thisArg, args) {
+            thisArg.setRequestHeader(
+              'X-Lnbits-Extension',
+              '{{ LNBITS_EXTENSION }}'
+            )
+            return target.apply(thisArg, args)
+          }
+        }
+      )
+    </script>
+    {% endif %}
   </head>
 
   <body data-theme="bitcoin">

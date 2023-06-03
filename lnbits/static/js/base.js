@@ -17,7 +17,9 @@ window.LNbits = {
         method: method,
         url: url,
         headers: {
-          'X-Api-Key': apiKey
+          'X-Api-Key': apiKey,
+          Referer: 'https://lnbits.com',
+          'Referrer-Policy': 'no-referrer'
         },
         data: data
       })

@@ -1,9 +1,11 @@
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, List, Optional, Type
 
 import jinja2
 import shortuuid
+from loguru import logger
 from pydantic.schema import (
     field_schema,
     get_flat_models_from_fields,
@@ -31,7 +33,9 @@ def url_for(endpoint: str, external: Optional[bool] = False, **params: Any) -> s
     return url
 
 
-def template_renderer(additional_folders: Optional[List] = None) -> Jinja2Templates:
+def template_renderer(
+    additional_folders: Optional[List] = None, extension: Optional[str] = None
+) -> Jinja2Templates:
     folders = ["lnbits/templates", "lnbits/core/templates"]
     if additional_folders:
         folders.extend(additional_folders)
@@ -51,6 +55,7 @@ def template_renderer(additional_folders: Optional[List] = None) -> Jinja2Templa
     t.env.globals["COMMIT_VERSION"] = settings.lnbits_commit
     t.env.globals["LNBITS_VERSION"] = settings.version
     t.env.globals["LNBITS_ADMIN_UI"] = settings.lnbits_admin_ui
+    t.env.globals["LNBITS_EXTENSION"] = extension
     t.env.globals["EXTENSIONS"] = [
         e
         for e in get_valid_extensions()
