@@ -8,7 +8,6 @@ from pathlib import Path
 
 import click
 import uvicorn
-
 from lnbits.settings import set_cli_settings, settings
 
 
@@ -66,6 +65,7 @@ def main(
             forwarded_allow_ips=forwarded_allow_ips,
             ssl_keyfile=ssl_keyfile,
             ssl_certfile=ssl_certfile,
+            # uds=f'{settings.lnbits_socket_path}/lnbits.sock',
             **d
         )
 

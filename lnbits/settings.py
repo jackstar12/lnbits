@@ -4,6 +4,7 @@ import inspect
 import json
 import subprocess
 from os import path
+from pathlib import Path
 from sqlite3 import Row
 from typing import Any, List, Optional
 
@@ -238,6 +239,7 @@ class EnvSettings(LNbitsSettings):
     lnbits_commit: str = Field(default="unknown")
     super_user: str = Field(default="")
     version: str = Field(default="0.0.0")
+    dev: bool = Field(default=False)
 
 
 class SaaSSettings(LNbitsSettings):
@@ -252,7 +254,7 @@ class PersistenceSettings(LNbitsSettings):
 
 
 class SuperUserSettings(LNbitsSettings):
-    lnbits_socket_path: str = Field(default="/home/jacksn/dev/lnbits/socks")
+    lnbits_socket_path: Path = Field(default="./sockets")
     lnbits_allowed_funding_sources: List[str] = Field(
         default=[
             "VoidWallet",

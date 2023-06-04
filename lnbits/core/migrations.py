@@ -1,9 +1,8 @@
 import datetime
 
+from lnbits import bolt11
 from loguru import logger
 from sqlalchemy.exc import OperationalError
-
-from lnbits import bolt11
 
 
 async def m000_create_migrations_table(db):
@@ -311,5 +310,13 @@ async def m011_create_extensions_permissions_table(db):
             permission TEXT NOT NULL,
             UNIQUE(extension_id, permission)
         );
+    """
+    )
+
+
+async def m012_add_extension_password_column(db):
+    await db.execute(
+        """
+        ALTER TABLE installed_extensions ADD COLUMN password TEXT;
     """
     )

@@ -1,18 +1,12 @@
 [tool.poetry]
-name = "lnbits"
+name = "lnbits-extension"
 version = "0.10.8"
 description = "LNbits, free and open-source Lightning wallet and accounts system."
 authors = ["Alan Bits <alan@lnbits.com>"]
 
+
 [tool.poetry.dependencies]
 python = "^3.10 | ^3.9"
-bech32 = "1.2.0"
-bitstring = "3.1.9"
-click = "8.0.4"
-ecdsa = "0.18.0"
-embit = "0.4.9"
-fastapi = "0.83.0"
-httpx = "0.23.0"
 jinja2 = "3.0.1"
 lnurl = "0.3.6"
 psycopg2-binary = "2.9.1"
@@ -35,7 +29,7 @@ pyln-client = "0.11.1"
 cashu = "0.9.0"
 docker = "^6.1.3"
 
-lib = { path = "./lib", develop = true }
+lib = {path = "../lib", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^6.0.0"
@@ -107,24 +101,24 @@ testpaths = [
 max-line-length = 300
 disable = "all"
 enable = [
-    "assignment-from-none",
-    "chained-comparison",
-    "consider-merging-isinstance",
-    "consider-using-dict-comprehension",
-    "consider-using-dict-items",
-    "consider-using-f-string",
-    "consider-using-in",
-    "dangerous-default-value",
-    "inconsistent-return-statements",
-    "lost-exception",
-    "pointless-string-statement",
-    "simplifiable-if-statement",
-    "super-init-not-called",
-    "superfluous-parens",
-    "unused-variable",
-    "use-list-literal",
-    "useless-else-on-loop",
-    "useless-object-inheritance",
+  "assignment-from-none",
+  "chained-comparison",
+  "consider-merging-isinstance",
+  "consider-using-dict-comprehension",
+  "consider-using-dict-items",
+  "consider-using-f-string",
+  "consider-using-in",
+  "dangerous-default-value",
+  "inconsistent-return-statements",
+  "lost-exception",
+  "pointless-string-statement",
+  "simplifiable-if-statement",
+  "super-init-not-called",
+  "superfluous-parens",
+  "unused-variable",
+  "use-list-literal",
+  "useless-else-on-loop",
+  "useless-object-inheritance",
 ]
 
 [tool.pylint.MASTER]

@@ -1,18 +1,17 @@
 from http import HTTPStatus
 from typing import Literal, Optional, Type
 
-from fastapi import Query, Request, Security, status
+from fastapi import Depends, Query, Request, Security, status
 from fastapi.exceptions import HTTPException
 from fastapi.openapi.models import APIKey, APIKeyIn
 from fastapi.security import APIKeyHeader, APIKeyQuery
 from fastapi.security.base import SecurityBase
-from pydantic.types import UUID4
-
 from lnbits.core.crud import get_user, get_wallet_for_key
 from lnbits.core.models import User, Wallet
 from lnbits.db import Filter, Filters, TFilterModel
 from lnbits.requestvars import g
 from lnbits.settings import settings
+from pydantic.types import UUID4
 
 
 # TODO: fix type ignores
@@ -126,8 +125,8 @@ api_key_query = APIKeyQuery(
 
 async def get_key_type(
     r: Request,
-    api_key_header: str = Security(api_key_header),
-    api_key_query: str = Security(api_key_query),
+    api_key_header: str = Depends(api_key_header),
+    api_key_query: str = Depends(api_key_query),
 ) -> WalletTypeInfo:
     # 0: admin
     # 1: invoice
@@ -231,7 +230,10 @@ async def require_invoice_key(
         return wallet
 
 
-async def check_user_exists(usr: UUID4) -> User:
+usr_key = APIKeyQuery(name="usr", description="User ID", auto_error=True)
+
+
+async def check_user_exists(usr: UUID4 = Depends(usr_key)) -> User:
     g().user = await get_user(usr.hex)
 
     if not g().user:
@@ -252,7 +254,7 @@ async def check_user_exists(usr: UUID4) -> User:
     return g().user
 
 
-async def check_admin(usr: UUID4) -> User:
+async def check_admin(usr: UUID4 = Depends(usr_key)) -> User:
     user = await check_user_exists(usr)
     if user.id != settings.super_user and user.id not in settings.lnbits_admin_users:
         raise HTTPException(
@@ -267,7 +269,10 @@ async def check_admin(usr: UUID4) -> User:
     return user
 
 
-async def check_super_user(usr: UUID4) -> User:
+# def check_extension(request: Request) -> RunningExtension:
+
+
+async def check_super_user(usr: UUID4 = Depends(usr_key)) -> User:
     user = await check_admin(usr)
     if user.id != settings.super_user:
         raise HTTPException(

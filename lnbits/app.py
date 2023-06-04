@@ -8,23 +8,25 @@ import signal
 import sys
 import traceback
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Callable, List, Optional
+from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request, Security
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from loguru import logger
-from starlette.background import BackgroundTask
-from starlette.responses import Response, StreamingResponse
-
 from lnbits.core.crud import get_installed_extensions
 from lnbits.core.helpers import migrate_extension_database
 from lnbits.core.tasks import register_task_listeners
 from lnbits.settings import get_wallet_class, set_wallet_class, settings
+from loguru import logger
+from pydantic import UUID4
+from starlette.background import BackgroundTask
+from starlette.datastructures import MultiDict
+from starlette.responses import Response, StreamingResponse
 
 from .commands import db_versions, load_disabled_extension_list, migrate_databases
 from .core import (
@@ -35,7 +37,15 @@ from .core import (
 )
 from .core.services import check_admin_settings
 from .core.views.generic import core_html_routes
-from .decorators import check_user_exists
+from .decorators import (
+    WalletTypeInfo,
+    api_key_header,
+    api_key_query,
+    check_user_exists,
+    get_key_type,
+    require_admin_key,
+    require_invoice_key,
+)
 from .extension_manager import (
     Extension,
     InstallableExtension,
@@ -97,6 +107,7 @@ def create_app() -> FastAPI:
     register_routes(app)
     register_async_tasks(app)
     register_exception_handlers(app)
+    register_shutdown(app)
 
     # Allow registering new extensions routes without direct access to the `app` object
     setattr(core_app_extra, "register_new_ext_routes", register_new_ext_routes(app))
@@ -251,20 +262,58 @@ def register_routes(app: FastAPI) -> None:
                 f"Please make sure that the extension `{ext.code}` follows conventions."
             )
 
+    @app.put("/extensions")
+    async def register_extension():
+        pass
+
     @app.api_route("/{extension}/{path:path}", include_in_schema=False)
     async def route_extensions(
-        extension: str, path: str, request: Request, user=Depends(check_user_exists)
+        extension: str,
+        path: str,
+        request: Request,
+        usr: UUID4 = Query(default=None),
+        api_key_header: str = Security(api_key_header),
+        api_key_query: str = Security(api_key_query),
     ):
         running = extension_manager.get_running(extension)
 
         if not running:
             raise HTTPException(status_code=404)
 
+        if not running.ready:
+            raise HTTPException(status_code=503)
+
         spec = await running.openapi()
 
         info = spec["paths"].get("/" + path)
         if info:
-            info = info.get(request.method.lower())
+            path = info.get(request.method.lower(), {})
+            info = path.get("lnbits")
+
+        params = MultiDict(request.query_params)
+
+        if any(
+            param["required"] and param["name"] == "usr" and param["in"] == "query"
+            for param in path.get("parameters", [])
+        ):
+            assert usr
+            params["user"] = await check_user_exists(usr)
+
+        wallet_info: Optional[WalletTypeInfo] = None
+        if "require-key" in info:
+            wallet_info = await get_key_type(request, api_key_header, api_key_query)
+        elif "require-admin-key" in info:
+            wallet_info = await require_admin_key(
+                request, api_key_header, api_key_query
+            )
+        elif "require-invoice-key" in info:
+            wallet_info = await require_invoice_key(
+                request, api_key_header, api_key_query
+            )
+
+        if wallet_info:
+            params["wallet"] = wallet_info.wallet
+            params["wallet_type"] = wallet_info.wallet_type
 
         forward = running.client.build_request(
             request.method,
@@ -274,7 +323,7 @@ def register_routes(app: FastAPI) -> None:
             params=request.query_params,
         )
 
-        if info and "x-template-response" in info:
+        if info and "template-response" in info:
             response = await running.client.send(forward)
             response.raise_for_status()
             json = response.json()
@@ -356,11 +405,17 @@ def register_startup(app: FastAPI):
             # check extensions after restart
             await check_installed_extensions(app)
 
-            extension_manager.start_all()
+            await extension_manager.start_all()
 
         except Exception as e:
             logger.error(str(e))
             raise ImportError("Failed to run 'startup' event.")
+
+
+def register_shutdown(app: FastAPI):
+    @app.on_event("shutdown")
+    async def lnbits_shutdown():
+        await extension_manager.stop_all()
 
 
 def log_server_info():

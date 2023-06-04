@@ -2,21 +2,27 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import sys
 import zipfile
+from copy import copy
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, List, NamedTuple, Optional, Tuple
+from typing import Any, Awaitable, List, NamedTuple, Optional, Tuple
 from urllib import request
 
+import docker
 import httpx
+from docker.models.containers import Container
 from fastapi import HTTPException
+from lnbits.db import SQLITE, Database
+from lnbits.settings import settings
 from loguru import logger
 from packaging import version
-from pydantic import BaseModel
-
-from lnbits.settings import settings
+from pydantic import BaseModel, Field
+from sqlalchemy.engine.url import URL, make_url
+from sqlalchemy.exc import ProgrammingError
 
 
 async def run_process(*args, on_line=None, name: str = "", **kwargs):
@@ -29,7 +35,7 @@ async def run_process(*args, on_line=None, name: str = "", **kwargs):
     )
 
     try:
-        await process.communicate()
+        # await process.communicate()
         await asyncio.gather(
             _read_stream(process.stdout, on_line=on_line, name=name),
             _read_stream(process.stderr, on_line=on_line, name=name),
@@ -234,6 +240,7 @@ class Extension(NamedTuple):
     db_name: Optional[str] = None
     upgrade_hash: Optional[str] = ""
     entrypoint: Optional[str] = None
+    dockerfile: Optional[str] = None
 
     @property
     def module_name(self):
@@ -244,8 +251,12 @@ class Extension(NamedTuple):
         )
 
     @property
+    def docker_name(self):
+        return f"lnbits-{self.code}"
+
+    @property
     def uds(self):
-        return f"{settings.lnbits_socket_path}/ext-{self.code}.sock"
+        return f"{settings.lnbits_socket_path}/{self.docker_name}.sock"
 
     @classmethod
     def from_installable_ext(cls, ext_info: "InstallableExtension") -> "Extension":
@@ -263,9 +274,14 @@ class Extension(NamedTuple):
 
 class RunningExtension(BaseModel):
     extension: Extension
-    task: asyncio.Task
-    client: httpx.AsyncClient
+    container: Optional[Container]
+    client: Optional[httpx.AsyncClient]
     openapi_schema: Optional[dict] = None
+    secret: str
+
+    @property
+    def ready(self):
+        return self.client is not None
 
     async def openapi(self):
         if not self.openapi_schema:
@@ -284,6 +300,7 @@ class ExtensionManager:
         Path(p).mkdir(parents=True, exist_ok=True)
         self._extension_folders: List[Path] = [f for f in p.iterdir() if f.is_dir()]
         self._running_extensions: dict[str, RunningExtension] = {}
+        self.docker = docker.from_env()
 
     def get_extension(self, code: str) -> Optional[Extension]:
         for extension in self.extensions:
@@ -320,6 +337,7 @@ class ExtensionManager:
                     config.get("migration_module"),
                     config.get("db_name"),
                     entrypoint=config.get("entrypoint"),
+                    dockerfile=config.get("dockerfile"),
                 )
             )
 
@@ -332,41 +350,125 @@ class ExtensionManager:
     def get_running(self, code: str) -> Optional[RunningExtension]:
         return self._running_extensions.get(code)
 
-    def start_all(self):
+    def get_running_by_secret(self, secret: str) -> Optional[RunningExtension]:
+        for running in self._running_extensions.values():
+            if running.secret == secret:
+                return running
+        return None
+
+    async def start_all(self):
         for extension in self.extensions:
-            self.start_extension(extension)
+            await self.start_extension(extension)
 
     async def stop_all(self):
         for extension in self.extensions:
             await self.stop_extension(extension)
 
-    def start_extension(self, extension: Extension):
+    async def start_extension(self, extension: Extension):
         if extension.entrypoint:
+            existing: list[Container] = self.docker.containers.list(
+                filters={"name": extension.docker_name}
+            )
+            if existing:
+                existing[0].stop(timeout=5)
+
+            db = Database("database")
+
+            volumes = [
+                f"{settings.lnbits_path}/extensions/{extension.code}:/app",  # for development purposes
+                f"{settings.lnbits_socket_path.resolve()}:/app/{settings.lnbits_socket_path}",
+            ]
+
+            secret = secrets.token_hex()
+
+            if db.type == SQLITE:
+                db_path = Path(settings.lnbits_data_folder, f"{extension.name}.sqlite3")
+                volumes.append(f"{db_path.resolve()}:/app/{db_path}")
+                db_url = f"sqlite:///{db_path}"
+            else:
+                try:
+                    await db.execute(
+                        f"""
+                        CREATE USER {extension.code} WITH PASSWORD '{secret}';
+                        GRANT ALL ON SCHEMA {extension.code} TO {extension.code};
+                        """,
+                    )
+                except ProgrammingError:
+                    await db.execute(
+                        f"ALTER USER {extension.code} WITH PASSWORD ?;", (secret,)
+                    )
+
+                db_url = make_url(settings.lnbits_database_url)
+                db_url.username = extension.code
+                db_url.password = secret
+                db_url.host = "host.docker.internal"
+                db_url = str(db_url)
+
+            if Path(extension.uds).exists():
+                os.remove(extension.uds)
+
+            container = self.docker.containers.run(
+                image=extension.docker_name,
+                remove=True,
+                name=extension.docker_name,
+                environment={
+                    "LNBITS_UDS": f"{settings.lnbits_socket_path}/lnbits.sock",
+                    "LNBITS_DB_URL": db_url,
+                    "LNBITS_EXTENSION_UDS": extension.uds,
+                    "LNBITS_EXTENSION_SECRET": secret,
+                },
+                volumes=volumes,
+                detach=True,
+            )
+
+            def watcher():
+                for line in container.logs(stream=True):
+                    print(f'{extension.code}: {line.decode("utf-8").strip()}')
+
+            if False:
+                proc = run_process(
+                    f"""
+                        docker run --rm \\
+                        --name {extension.code} \\
+                        --env LNBITS_UDS={settings.lnbits_socket_path}/main.sock \\
+                        --env LNBITS_DB_URL={settings.lnbits_data_folder}/db.sqlite3 \\
+                        --env LNBITS_EXTENSION_UDS={extension.uds} \\
+                        -v {settings.lnbits_socket_path.resolve()}:/app/{settings.lnbits_socket_path} \\
+                        lnbits-{extension.code} \\
+                        """,
+                    name=extension.code,
+                )
+            elif False:
+                proc = run_process(
+                    f"""
+                    cd {settings.lnbits_path}/extensions/{extension.code} &&
+                    export LNBITS_UDS={settings.lnbits_socket_path.resolve()}/main.sock &&
+                    export LNBITS_DB_URL={settings.lnbits_data_folder}/db.sqlite3 &&
+                    export LNBITS_EXTENSION_UDS={extension.uds} &&
+                    {extension.entrypoint}
+                    """,
+                    name=extension.code,
+                )
+            else:
+                asyncio.get_running_loop().run_in_executor(None, watcher)
             self._running_extensions[extension.code] = RunningExtension(
                 extension=extension,
-                task=asyncio.create_task(
-                    run_process(
-                        f"""
-                        cd {settings.lnbits_path}/extensions/{extension.code} &&
-                        {extension.entrypoint} \\
-                            --lnbits-uds {settings.lnbits_socket_path}/main.sock \\
-                            --lnbits-db-url {settings.lnbits_database_url}/data/db.sqlite3 \\
-                            --uds {extension.uds}
-                        """,
-                        name=extension.code,
-                    )
-                ),
+                container=container,
                 client=httpx.AsyncClient(
                     transport=httpx.AsyncHTTPTransport(uds=extension.uds),
                     base_url=f"http://{extension.code}",
                 ),
+                secret=secret,
             )
 
     async def stop_extension(self, extension: Extension):
         if extension.code in self._running_extensions:
             logger.info("Stopping extension: " + extension.code)
             running = self._running_extensions.pop(extension.code)
-            running.task.cancel()
+            if running.container:
+                running.container.stop()
+            if running.task:
+                running.task.cancel()
             await running.client.aclose()
 
 

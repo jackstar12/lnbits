@@ -22,12 +22,6 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.exceptions import HTTPException
-from loguru import logger
-from pydantic import BaseModel
-from pydantic.fields import Field
-from sse_starlette.sse import EventSourceResponse
-from starlette.responses import RedirectResponse, StreamingResponse
-
 from lnbits import bolt11, lnurl
 from lnbits.core.helpers import (
     migrate_extension_database,
@@ -49,6 +43,8 @@ from lnbits.extension_manager import (
     Extension,
     ExtensionRelease,
     InstallableExtension,
+    RunningExtension,
+    extension_manager,
     fetch_github_release_config,
     get_valid_extensions,
 )
@@ -59,6 +55,11 @@ from lnbits.utils.exchange_rates import (
     fiat_amount_as_satoshis,
     satoshis_amount_as_fiat,
 )
+from loguru import logger
+from pydantic import BaseModel
+from pydantic.fields import Field
+from sse_starlette.sse import EventSourceResponse
+from starlette.responses import RedirectResponse, StreamingResponse
 
 from .. import core_app, core_app_extra, db
 from ..crud import (
@@ -828,6 +829,33 @@ async def api_install_extension(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             detail=f"Failed to install extension {ext_info.id} ({ext_info.installed_version}).",
         )
+
+
+@core_app.post(
+    "/api/v1/extension/register",
+)
+async def extension_register(
+    request: Request, code: str = Body(default=None, embed=True)
+):
+    secret = request.headers.get("X-Lnbits-Extension-Secret")
+    if code and settings.dev:
+        extension = extension_manager.get_extension(code)
+        running = RunningExtension(
+            extension=extension,
+            secret=secret,
+        )
+    elif secret:
+        running = extension_manager.get_running_by_secret(secret)
+    else:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="No extension code or secret provided.",
+        )
+
+    running.client = httpx.AsyncClient(
+        transport=httpx.AsyncHTTPTransport(uds=running.extension.uds),
+        base_url=f"http://{running.extension.code}",
+    )
 
 
 @core_app.delete("/api/v1/extension/{ext_id}")
