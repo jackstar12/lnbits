@@ -62,8 +62,6 @@ if settings.lnbits_database_url:
 else:
     if os.path.isdir(settings.lnbits_data_folder):
         DB_TYPE = SQLITE
-        path = os.path.join(settings.lnbits_data_folder, f"{self.name}.sqlite3")
-        settings.lnbits_database_url = f"sqlite:///{self.path}"
     else:
         raise NotADirectoryError(
             f"LNBITS_DATA_FOLDER named {settings.lnbits_data_folder} was not created"

@@ -45,6 +45,8 @@ fly.toml
 
 lnbits-backup.zip
 
+dist/
+
 # Ignore extensions (post installable extension PR)
 extensions/
 upgrades/

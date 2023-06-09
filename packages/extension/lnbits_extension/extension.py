@@ -5,14 +5,13 @@ import httpx
 import uvicorn
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
-from lnbits.core import User
 from pydantic import UUID4, BaseSettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 
-def check_user_exists(self, usr: UUID4, request: Request) -> User:
-    return User(**json.loads(request.query_params["user"]))
+def check_user_exists(self, usr: UUID4, request: Request):
+    return json.loads(request.query_params["user"])
 
 
 class ExtensionApiRouter(APIRouter):
@@ -33,10 +32,10 @@ class ViewsRouter(APIRouter):
 
 
 class EnvSettings(BaseSettings):
-    lnbits_uds: str
-    lnbits_db_url: str
-    lnbits_extension_uds: str
-    lnbits_extension_secret: str
+    lnbits_uds: str = ""
+    lnbits_db_url: str = ""
+    lnbits_extension_uds: str = ""
+    lnbits_extension_secret: str = ""
 
     class Config:
         case_sensitive = False
@@ -50,7 +49,7 @@ class LnbitsExtension:
         self.openapi_url = f"/{name}/openapi.json"
 
         self.views = ViewsRouter()
-        self.api = APIRouter(prefix=f"/api/v1")
+        self.api = APIRouter(prefix="/api/v1")
 
         self.client = httpx.AsyncClient(
             base_url="http://host.docker.internal:5000",

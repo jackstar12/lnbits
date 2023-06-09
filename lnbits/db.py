@@ -1,1 +1,1 @@
-from lib.db import *
+from lnbits_lib.db import *
