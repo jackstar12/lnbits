@@ -5,12 +5,14 @@ import httpx
 import uvicorn
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
+from lnbits_lib.db import Database
 from pydantic import UUID4, BaseSettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 
-def check_user_exists(self, usr: UUID4, request: Request):
+def check_user_exists(usr: UUID4, request: Request):
+    print(request.query_params["user"])
     return json.loads(request.query_params["user"])
 
 
@@ -39,12 +41,14 @@ class EnvSettings(BaseSettings):
 
     class Config:
         case_sensitive = False
+        env_file = ".env"
 
 
 class LnbitsExtension:
     def __init__(self, *args, name: str, **kwargs):
         self.app = FastAPI(*args, **kwargs)
         self.settings = EnvSettings()
+        self.name = name
 
         self.openapi_url = f"/{name}/openapi.json"
 
@@ -52,7 +56,9 @@ class LnbitsExtension:
         self.api = APIRouter(prefix="/api/v1")
 
         self.client = httpx.AsyncClient(
-            base_url="http://host.docker.internal:5000",
+            # base_url="http://localhost:5000",
+            base_url="http://lnbits",
+            transport=httpx.AsyncHTTPTransport(uds=self.settings.lnbits_uds),
             headers={
                 "X-Lnbits-Extension-Secret": self.settings.lnbits_extension_secret
             },
@@ -60,7 +66,9 @@ class LnbitsExtension:
 
         @self.app.on_event("startup")
         async def startup():
-            await self.client.post("/api/v1/extension/register")
+            await self.client.post(
+                "/api/v1/extension/register", json={"code": self.name}
+            )
 
         @self.app.on_event("shutdown")
         async def shutdown():

@@ -10,6 +10,7 @@
     "vendor_minify_js": "./node_modules/.bin/minify ./lnbits/static/bundle.js > ./lnbits/static/bundle.min.js"
   },
   "devDependencies": {
+    "@openapitools/openapi-generator-cli": "^2.6.0",
     "concat": "^1.0.3",
     "minify": "^9.2.0",
     "prettier": "2.8.3",

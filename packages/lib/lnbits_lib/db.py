@@ -10,9 +10,11 @@ from enum import Enum
 from sqlite3 import Row
 from typing import Any, Generic, List, Literal, Optional, Type, TypeVar
 
+import psycopg2
 from loguru import logger
 from pydantic import BaseModel, ValidationError, root_validator
 from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy_aio.base import AsyncConnection
 from sqlalchemy_aio.strategy import ASYNCIO_STRATEGY
 
@@ -251,25 +253,21 @@ class Database(Compat):
 
         logger.trace(f"database {self.type} added for {self.name}")
 
+    async def init_schema(self):
+        if self.schema:
+            async with self.connect() as conn:
+                if self.type in {POSTGRES, COCKROACH}:
+                    await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
+                elif self.type == SQLITE:
+                    await conn.execute(f"ATTACH '{self.path}' AS {self.schema}")
+
     @asynccontextmanager
     async def connect(self):
         await self.lock.acquire()
         try:
             async with self.engine.connect() as conn:  # type: ignore
                 async with conn.begin() as txn:
-                    wconn = Connection(conn, txn, self.type, self.name, self.schema)
-
-                    if self.schema:
-                        if self.type in {POSTGRES, COCKROACH}:
-                            await wconn.execute(
-                                f"CREATE SCHEMA IF NOT EXISTS {self.schema}"
-                            )
-                        elif self.type == SQLITE:
-                            await wconn.execute(
-                                f"ATTACH '{self.path}' AS {self.schema}"
-                            )
-
-                    yield wconn
+                    yield Connection(conn, txn, self.type, self.name, self.schema)
         finally:
             self.lock.release()
 

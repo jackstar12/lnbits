@@ -18,15 +18,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from lnbits.core.crud import get_installed_extensions
-from lnbits.core.helpers import migrate_extension_database
-from lnbits.core.tasks import register_task_listeners
-from lnbits.settings import get_wallet_class, set_wallet_class, settings
 from loguru import logger
 from pydantic import UUID4
 from starlette.background import BackgroundTask
 from starlette.datastructures import MultiDict
 from starlette.responses import Response, StreamingResponse
+
+from lnbits.core.crud import get_installed_extensions
+from lnbits.core.helpers import migrate_extension_database
+from lnbits.core.tasks import register_task_listeners
+from lnbits.settings import get_wallet_class, set_wallet_class, settings
 
 from .commands import db_versions, load_disabled_extension_list, migrate_databases
 from .core import (
@@ -49,6 +50,7 @@ from .decorators import (
 from .extension_manager import (
     Extension,
     InstallableExtension,
+    RunningExtension,
     extension_manager,
     get_valid_extensions,
     run_process,
@@ -70,7 +72,6 @@ from .tasks import (
 
 
 def create_app() -> FastAPI:
-
     configure_logger()
 
     app = FastAPI(
@@ -116,7 +117,6 @@ def create_app() -> FastAPI:
 
 
 async def check_funding_source() -> None:
-
     original_sigint_handler = signal.getsignal(signal.SIGINT)
 
     def signal_handler(signal, frame):
@@ -285,19 +285,22 @@ def register_routes(app: FastAPI) -> None:
 
         spec = await running.openapi()
 
-        info = spec["paths"].get("/" + path)
+        info = spec["paths"].get("/" + path, {})
         if info:
-            path = info.get(request.method.lower(), {})
-            info = path.get("lnbits")
+            openapi_path = info.get(request.method.lower(), {})
+            info = openapi_path.get("lnbits")
+        else:
+            openapi_path = {}
 
         params = MultiDict(request.query_params)
 
         if any(
             param["required"] and param["name"] == "usr" and param["in"] == "query"
-            for param in path.get("parameters", [])
+            for param in openapi_path.get("parameters", [])
         ):
             assert usr
-            params["user"] = await check_user_exists(usr)
+            user = await check_user_exists(usr)
+            params["user"] = user.json()
 
         wallet_info: Optional[WalletTypeInfo] = None
         if "require-key" in info:
@@ -320,7 +323,7 @@ def register_routes(app: FastAPI) -> None:
             f"/{path}",
             content=await request.body(),
             headers=dict(request.headers),
-            params=request.query_params,
+            params=params,
         )
 
         if info and "template-response" in info:
@@ -386,7 +389,6 @@ def register_ext_routes(app: FastAPI, ext: Extension) -> None:
 def register_startup(app: FastAPI):
     @app.on_event("startup")
     async def lnbits_startup():
-
         try:
             # wait till migration is done
             await migrate_databases()

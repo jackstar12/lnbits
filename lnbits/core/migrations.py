@@ -1,8 +1,9 @@
 import datetime
 
-from lnbits import bolt11
 from loguru import logger
 from sqlalchemy.exc import OperationalError
+
+from lnbits import bolt11
 
 
 async def m000_create_migrations_table(db):

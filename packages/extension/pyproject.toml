@@ -4,8 +4,7 @@ version = "0.11.9"
 description = "LNbits, free and open-source Lightning wallet and accounts system."
 authors = ["Alan Bits <alan@lnbits.com>"]
 packages = [
-  { include = "extension" },
-  { include = "lib" }
+  { include = "lnbits_extension" },
 ]
 
 [tool.poetry.dependencies]

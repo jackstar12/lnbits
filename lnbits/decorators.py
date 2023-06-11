@@ -6,12 +6,13 @@ from fastapi.exceptions import HTTPException
 from fastapi.openapi.models import APIKey, APIKeyIn
 from fastapi.security import APIKeyHeader, APIKeyQuery
 from fastapi.security.base import SecurityBase
+from pydantic.types import UUID4
+
 from lnbits.core.crud import get_user, get_wallet_for_key
 from lnbits.core.models import User, Wallet
 from lnbits.db import Filter, Filters, TFilterModel
 from lnbits.requestvars import g
 from lnbits.settings import settings
-from pydantic.types import UUID4
 
 
 # TODO: fix type ignores
@@ -231,6 +232,7 @@ async def require_invoice_key(
 
 
 usr_key = APIKeyQuery(name="usr", description="User ID", auto_error=True)
+# usr_key = Query()
 
 
 async def check_user_exists(usr: UUID4 = Depends(usr_key)) -> User:
