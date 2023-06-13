@@ -620,7 +620,7 @@ async def update_pending_payments(wallet_id: str):
 
 async def get_payments_history(
     wallet_id: Optional[str] = None,
-    trunc: DateTrunc = "day",
+    group: DateTrunc = "day",
     filters: Optional[Filters] = None,
 ) -> List[PaymentHistoryPoint]:
     if not filters:
@@ -633,9 +633,9 @@ async def get_payments_history(
 
     transactions = await db.fetchall(
         f"""
-        SELECT {db.truncate_date('time', trunc)} date,
+        SELECT {db.truncate_date('time', group)} date,
                SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) income,
-               SUM(CASE WHEN amount < 0 THEN -amount - fee ELSE 0 END) spending
+               SUM(CASE WHEN amount < 0 THEN abs(amount) + abs(fee) ELSE 0 END) spending
         FROM apipayments
         {filters.where(where)}
         GROUP BY date
@@ -652,9 +652,10 @@ async def get_payments_history(
     else:
         balance = await get_total_balance()
 
+    # since we dont know the balance at the starting point, we take the current balance and walk backwards
     results: list[PaymentHistoryPoint] = []
     for row in transactions:
-        results.insert(0, PaymentHistoryPoint(balance=balance, **dict(row)))
+        results.insert(0, PaymentHistoryPoint(balance=balance, **dict(row)))  # type: ignore
         balance -= row.income - row.spending
     return results
 
