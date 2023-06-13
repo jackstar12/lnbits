@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import shortuuid
 
 from lnbits import bolt11
-from lnbits.db import Connection, Filters, Page
+from lnbits.db import Connection, DateTrunc, Filters, Page
 from lnbits.extension_manager import InstallableExtension
 from lnbits.settings import AdminSettings, EditableSettings, SuperSettings, settings
 
@@ -620,12 +620,12 @@ async def update_pending_payments(wallet_id: str):
 
 async def get_payments_history(
     wallet_id: Optional[str] = None,
-    trunc: str = "day",
+    trunc: DateTrunc = "day",
     filters: Optional[Filters] = None,
 ) -> List[PaymentHistoryPoint]:
     if not filters:
         filters = Filters()
-    where = ["pending = False"]
+    where = ["(pending = False OR amount < 0)"]
     values = []
     if wallet_id:
         where.append("wallet = ?")
@@ -633,8 +633,8 @@ async def get_payments_history(
 
     transactions = await db.fetchall(
         f"""
-        SELECT {db.truncate_date('time', trunc)}                                              date,
-               SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)        income,
+        SELECT {db.truncate_date('time', trunc)} date,
+               SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) income,
                SUM(CASE WHEN amount < 0 THEN -amount - fee ELSE 0 END) spending
         FROM apipayments
         {filters.where(where)}
@@ -654,8 +654,8 @@ async def get_payments_history(
 
     results: list[PaymentHistoryPoint] = []
     for row in transactions:
-        balance -= row.income - row.spending
         results.insert(0, PaymentHistoryPoint(balance=balance, **dict(row)))
+        balance -= row.income - row.spending
     return results
 
 
