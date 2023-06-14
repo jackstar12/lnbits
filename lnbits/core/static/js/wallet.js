@@ -802,11 +802,6 @@ new Vue({
       })
     }
   },
-  watch: {
-    payments: function () {
-      this.fetchBalance()
-    }
-  },
   created: function () {
     this.fetchBalance()
     this.fetchPayments()

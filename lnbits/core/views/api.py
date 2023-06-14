@@ -72,6 +72,7 @@ from ..crud import (
     get_standalone_payment,
     get_tinyurl,
     get_tinyurl_by_url,
+    get_wallet_balance,
     get_wallet_for_key,
     save_balance_check,
     update_wallet,
@@ -95,15 +96,17 @@ async def health():
 
 
 @core_app.get("/api/v1/wallet")
-async def api_wallet(wallet: WalletTypeInfo = Depends(get_key_type)):
-    if wallet.wallet_type == 0:
-        return {
-            "id": wallet.wallet.id,
-            "name": wallet.wallet.name,
-            "balance": wallet.wallet.balance_msat,
-        }
-    else:
-        return {"name": wallet.wallet.name, "balance": wallet.wallet.balance_msat}
+async def api_wallet(info: WalletTypeInfo = Depends(get_key_type)):
+    balance_msat = await get_wallet_balance(info.wallet.id)
+    if balance_msat is not None:
+        if info.wallet_type == 0:
+            return {
+                "id": info.wallet.id,
+                "name": info.wallet.name,
+                "balance": balance_msat,
+            }
+        else:
+            return {"name": info.wallet.name, "balance": balance_msat}
 
 
 @core_app.put("/api/v1/wallet/{new_name}")

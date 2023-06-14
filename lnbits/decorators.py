@@ -8,8 +8,8 @@ from fastapi.security import APIKeyHeader, APIKeyQuery
 from fastapi.security.base import SecurityBase
 from pydantic.types import UUID4
 
-from lnbits.core.crud import get_user, get_wallet_for_key
-from lnbits.core.models import User, Wallet
+from lnbits.core.crud import get_user, get_wallet_for_key, get_wallet_info_for_key
+from lnbits.core.models import User, Wallet, WalletInfo
 from lnbits.db import Filter, Filters, TFilterModel
 from lnbits.requestvars import g
 from lnbits.settings import settings
@@ -49,10 +49,7 @@ class KeyChecker(SecurityBase):
                 if self._api_key
                 else request.headers.get("X-API-KEY") or request.query_params["api-key"]
             )
-            # FIXME: Find another way to validate the key. A fetch from DB should be avoided here.
-            #        Also, we should not return the wallet here - thats silly.
-            #        Possibly store it in a Redis DB
-            self.wallet = await get_wallet_for_key(key_value, self._key_type)  # type: ignore
+            self.wallet = await get_wallet_info_for_key(key_value, self._key_type)  # type: ignore
             if not self.wallet:
                 raise HTTPException(
                     status_code=HTTPStatus.UNAUTHORIZED,
@@ -105,9 +102,9 @@ class WalletAdminKeyChecker(KeyChecker):
 
 class WalletTypeInfo:
     wallet_type: int
-    wallet: Wallet
+    wallet: WalletInfo
 
-    def __init__(self, wallet_type: int, wallet: Wallet) -> None:
+    def __init__(self, wallet_type: int, wallet: WalletInfo) -> None:
         self.wallet_type = wallet_type
         self.wallet = wallet
 

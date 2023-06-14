@@ -18,23 +18,12 @@ from lnbits.wallets import get_wallet_class
 from lnbits.wallets.base import PaymentStatus
 
 
-class Wallet(BaseModel):
+class WalletInfo(BaseModel):
     id: str
     name: str
     user: str
     adminkey: str
     inkey: str
-    balance_msat: int
-
-    @property
-    def balance(self) -> int:
-        return self.balance_msat // 1000
-
-    @property
-    def withdrawable_balance(self) -> int:
-        from .services import fee_reserve
-
-        return self.balance_msat - fee_reserve(self.balance_msat)
 
     @property
     def lnurlwithdraw_full(self) -> str:
@@ -56,6 +45,20 @@ class Wallet(BaseModel):
         from .crud import get_standalone_payment
 
         return await get_standalone_payment(payment_hash)
+
+
+class Wallet(WalletInfo):
+    balance_msat: int
+
+    @property
+    def balance(self) -> int:
+        return self.balance_msat // 1000
+
+    @property
+    def withdrawable_balance(self) -> int:
+        from .services import fee_reserve
+
+        return self.balance_msat - fee_reserve(self.balance_msat)
 
 
 class User(BaseModel):

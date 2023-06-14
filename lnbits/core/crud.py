@@ -12,7 +12,17 @@ from lnbits.extension_manager import InstallableExtension
 from lnbits.settings import AdminSettings, EditableSettings, SuperSettings, settings
 
 from . import db
-from .models import BalanceCheck, Payment, PaymentFilters, TinyURL, User, Wallet
+from .models import (
+    BalanceCheck,
+    Payment,
+    PaymentFilters,
+    TinyURL,
+    User,
+    Wallet,
+    WalletInfo,
+)
+from ..cache import cache
+
 
 # accounts
 # --------
@@ -205,6 +215,12 @@ async def update_user_extension(
 # -------
 
 
+def _cache_wallet_info(info: WalletInfo):
+    cache.set("wallet-" + info.id, info)
+    cache.set("wallet-" + info.inkey, info)
+    cache.set("wallet-" + info.adminkey, info)
+
+
 async def create_wallet(
     *,
     user_id: str,
@@ -276,28 +292,60 @@ async def get_wallet(
         (wallet_id,),
     )
 
-    return Wallet(**row) if row else None
+    if not row:
+        return None
+
+    result = Wallet(**row)
+    _cache_wallet_info(WalletInfo(**row))
+    return result
+
+
+async def get_wallet_balance(
+    wallet_id: str, conn: Optional[Connection] = None
+) -> Optional[int]:
+    row = await (conn or db).fetchone(
+        "SELECT balance FROM balances WHERE wallet = ?",
+        (wallet_id,),
+    )
+    if row:
+        return row.balance
+
+
+async def get_wallet_info_for_key(
+    key: str, key_type: str = "invoice", conn: Optional[Connection] = None
+) -> Optional[WalletInfo]:
+    result = cache.get("wallet-" + key)
+
+    if not result:
+        row = await (conn or db).fetchone(
+            """
+            SELECT * FROM wallets
+            WHERE adminkey = ? OR inkey = ?
+            """,
+            (key, key),
+        )
+        if row:
+            result = WalletInfo(**row)
+            _cache_wallet_info(result)
+
+    if not result:
+        return None
+
+    if key_type == "admin" and result.adminkey != key:
+        return None
+
+    return result
 
 
 async def get_wallet_for_key(
     key: str, key_type: str = "invoice", conn: Optional[Connection] = None
 ) -> Optional[Wallet]:
-    row = await (conn or db).fetchone(
-        """
-        SELECT *, COALESCE((SELECT balance FROM balances WHERE wallet = wallets.id), 0) AS balance_msat
-        FROM wallets
-        WHERE adminkey = ? OR inkey = ?
-        """,
-        (key, key),
-    )
-
-    if not row:
-        return None
-
-    if key_type == "admin" and row["adminkey"] != key:
-        return None
-
-    return Wallet(**row)
+    info = await get_wallet_info_for_key(key, key_type, conn=conn)
+    if info:
+        return Wallet(
+            **info.dict(),
+            balance_msat=await get_wallet_balance(info.id, conn=conn)
+        )
 
 
 async def get_total_balance(conn: Optional[Connection] = None):
