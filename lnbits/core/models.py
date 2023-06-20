@@ -4,7 +4,7 @@ import hmac
 import json
 import time
 from sqlite3 import Row
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, NamedTuple, Optional
 
 from ecdsa import SECP256k1, SigningKey
 from lnurl import encode as lnurl_encode
@@ -15,7 +15,32 @@ from lnbits.db import Connection, FilterModel, FromRowModel
 from lnbits.helpers import url_for
 from lnbits.settings import settings
 from lnbits.wallets import get_wallet_class
-from lnbits.wallets.base import PaymentStatus
+
+# from lnbits.wallets.base import PaymentStatus
+
+
+class PaymentStatus(NamedTuple):
+    paid: Optional[bool] = None
+    fee_msat: Optional[int] = None
+    preimage: Optional[str] = None
+
+    @property
+    def pending(self) -> bool:
+        return self.paid is not True
+
+    @property
+    def failed(self) -> bool:
+        return self.paid is False
+
+    def __str__(self) -> str:
+        if self.paid is True:
+            return "settled"
+        elif self.paid is False:
+            return "failed"
+        elif self.paid is None:
+            return "still pending"
+        else:
+            return "unknown (should never happen)"
 
 
 class Wallet(BaseModel):
@@ -184,9 +209,9 @@ class Payment(FromRowModel):
 
         WALLET = get_wallet_class()
         if self.is_out:
-            status = await WALLET.get_payment_status(self.checking_id)
+            status = await WALLET.get_payment_status(self)
         else:
-            status = await WALLET.get_invoice_status(self.checking_id)
+            status = await WALLET.get_invoice_status(self)
 
         logger.debug(f"Status: {status}")
 
