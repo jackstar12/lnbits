@@ -16,32 +16,6 @@ from lnbits.helpers import url_for
 from lnbits.settings import settings
 from lnbits.wallets import get_wallet_class
 
-# from lnbits.wallets.base import PaymentStatus
-
-
-class PaymentStatus(NamedTuple):
-    paid: Optional[bool] = None
-    fee_msat: Optional[int] = None
-    preimage: Optional[str] = None
-
-    @property
-    def pending(self) -> bool:
-        return self.paid is not True
-
-    @property
-    def failed(self) -> bool:
-        return self.paid is False
-
-    def __str__(self) -> str:
-        if self.paid is True:
-            return "settled"
-        elif self.paid is False:
-            return "failed"
-        elif self.paid is None:
-            return "still pending"
-        else:
-            return "unknown (should never happen)"
-
 
 class Wallet(BaseModel):
     id: str
@@ -109,6 +83,30 @@ class User(BaseModel):
         if user in settings.lnbits_admin_users:
             return True
         return False
+
+
+class PaymentStatus(NamedTuple):
+    paid: Optional[bool] = None
+    fee_msat: Optional[int] = None
+    preimage: Optional[str] = None
+
+    @property
+    def pending(self) -> bool:
+        return self.paid is not True
+
+    @property
+    def failed(self) -> bool:
+        return self.paid is False
+
+    def __str__(self) -> str:
+        if self.paid is True:
+            return "settled"
+        elif self.paid is False:
+            return "failed"
+        elif self.paid is None:
+            return "still pending"
+        else:
+            return "unknown (should never happen)"
 
 
 class Payment(FromRowModel):
