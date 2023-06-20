@@ -10,6 +10,7 @@ from lnbits.wallets.base import Wallet
 from .cliche import ClicheWallet
 from .cln import CoreLightningWallet
 from .cln import CoreLightningWallet as CLightningWallet
+from .clnrest import CLNRestWallet
 from .eclair import EclairWallet
 from .fake import FakeWallet
 from .lnbits import LNbitsWallet
@@ -20,7 +21,6 @@ from .lntips import LnTipsWallet
 from .opennode import OpenNodeWallet
 from .spark import SparkWallet
 from .void import VoidWallet
-from .clnrest import CLNRestWallet
 
 
 def set_wallet_class(class_name: Optional[str] = None):
