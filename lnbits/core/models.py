@@ -240,6 +240,7 @@ class PaymentHistoryPoint(BaseModel):
     income: int
     spending: int
     balance: int
+    count: int
 
 
 class BalanceCheck(BaseModel):
