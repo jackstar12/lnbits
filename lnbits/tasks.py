@@ -14,7 +14,7 @@ from lnbits.core.crud import (
     get_payments,
     get_standalone_payment,
 )
-from lnbits.core.services import redeem_lnurl_withdraw
+from lnbits.core.services import redeem_lnurl_withdraw, check_payment_status
 from lnbits.wallets import get_wallet_class
 
 from .core import db
@@ -140,7 +140,7 @@ async def check_pending_payments():
                 conn=conn,
             )
             for payment in pending_payments:
-                await payment.check_status(conn=conn)
+                await check_payment_status(payment, conn=conn)
 
             logger.info(
                 f"Task: pending check finished for {len(pending_payments)} payments (took {time.time() - start_time:0.3f} s)"

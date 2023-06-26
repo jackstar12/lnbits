@@ -84,7 +84,7 @@ from ..services import (
     pay_invoice,
     perform_lnurlauth,
     websocketManager,
-    websocketUpdater,
+    websocketUpdater, check_payment_status,
 )
 from ..tasks import api_invoice_listeners
 
@@ -493,7 +493,7 @@ async def api_payment(payment_hash, X_Api_Key: Optional[str] = Header(None)):
         return {"paid": True, "preimage": payment.preimage}
 
     try:
-        await payment.check_status()
+        await check_payment_status(payment)
     except Exception:
         if wallet and wallet.id == payment.wallet_id:
             return {"paid": False, "details": payment}
