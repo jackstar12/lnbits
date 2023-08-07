@@ -29,6 +29,7 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def app(event_loop):
     app = create_app()
+    settings.lnbits_admin_ui = False
     await app.router.startup()
     yield app
     await app.router.shutdown()
