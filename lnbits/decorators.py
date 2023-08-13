@@ -283,9 +283,17 @@ def parse_filters(model: Type[TFilterModel]):
         request: Request,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
-        sortby: Optional[str] = None,
-        direction: Optional[Literal["asc", "desc"]] = None,
-        search: Optional[str] = Query(None, description="Text based search"),
+        sortby: Optional[str] = Query(
+            None, include_in_schema=bool(model.__sort_fields__)
+        ),
+        direction: Optional[Literal["asc", "desc"]] = Query(
+            None, include_in_schema=bool(model.__sort_fields__)
+        ),
+        search: Optional[str] = Query(
+            None,
+            description="Text based search",
+            include_in_schema=bool(model.__search_fields__),
+        ),
     ):
         params = request.query_params
         filters = []
