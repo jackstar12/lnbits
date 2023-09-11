@@ -1,25 +1,29 @@
 import asyncio
 
+import psycopg2
 import uvloop
+from sqlalchemy.engine.url import make_url
 
-uvloop.install()  # noqa
+uvloop.install()
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
+from lnbits.settings import settings
+
+# dont install extensions for tests
+settings.lnbits_extensions_default_install = []
+
+from lnbits import core
 from lnbits.app import create_app
-from lnbits.core.crud import create_account, create_wallet
+from lnbits.core.crud import create_account, create_wallet, get_user
 from lnbits.core.models import CreateInvoice
 from lnbits.core.services import update_wallet_balance
 from lnbits.core.views.api import api_payments_create_invoice
 from lnbits.db import Database
-from lnbits.settings import settings
 from tests.helpers import get_hold_invoice, get_random_invoice_data, get_real_invoice
-
-# dont install extensions for tests
-settings.lnbits_extensions_default_install = []
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -32,6 +36,26 @@ def event_loop():
 # use session scope to run once before and once after all tests
 @pytest_asyncio.fixture(scope="session")
 async def app():
+    if settings.lnbits_database_url:
+        db_url = make_url(settings.lnbits_database_url)
+
+        if db_url.drivername in ("postgres", "postgresql"):
+            conn = psycopg2.connect(settings.lnbits_database_url)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("DROP DATABASE lnbits_test")
+                except psycopg2.errors.InvalidCatalogName:
+                    pass
+                cur.execute("CREATE DATABASE lnbits_test")
+
+            db_url.database = "lnbits_test"
+            settings.lnbits_database_url = str(db_url)
+
+            core.db.__init__("database")
+
+            conn.close()
+
     app = create_app()
     await app.router.startup()
     yield app
